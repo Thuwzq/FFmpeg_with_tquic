@@ -1,46 +1,41 @@
-FFmpeg README
+# FFmpeg-with-TQUIC README
+=============
+## Introduction
+Add TQUIC lib to FFmpeg network component
+
+## Requirements
+- FFmpeg version: 7.1.1 https://github.com/FFmpeg/FFmpeg/tree/n7.1.1
+- QUIC version: TQUIC 1.6.0 https://github.com/Tencent/tquic/tree/release/v1.6.0
+
+# Enviroments
+We have run this project on MacOS ARM system, but we do not guarantee working on other systems.
+
 =============
 
-FFmpeg is a collection of libraries and tools to process multimedia content
-such as audio, video, subtitles and related metadata.
+## Build
+```bash
+# Get source code
+git clone https://github.com/Thuwzq/FFmpeg_with_tquic.git --recursive
 
-## Libraries
+# Build TQUIC
+cd third_party/tquic
+cargo build --release -F ffi
 
-* `libavcodec` provides implementation of a wider range of codecs.
-* `libavformat` implements streaming protocols, container formats and basic I/O access.
-* `libavutil` includes hashers, decompressors and miscellaneous utility functions.
-* `libavfilter` provides means to alter decoded audio and video through a directed graph of connected filters.
-* `libavdevice` provides an abstraction to access capture and playback devices.
-* `libswresample` implements audio mixing and resampling routines.
-* `libswscale` implements color conversion and scaling routines.
 
-## Tools
+#build ffmpeg
+#openssl and pthreads must be included, you can set other modules as you want
+#configure example below:
+./configure --prefix=/usr/local/ffmpeg --extra-cflags=-I/opt/homebrew/opt/libev/include --extra-ldflags="/path/to/libev.a ./third_party/tquic/target/release/libtquic.a" --enable-gpl --enable-openssl --enable-nonfree --enable-libfdk-aac --enable-libx264 --enable-libx265 --enable-filter=delogo --enable-debug --disable-optimizations --enable-libspeex --enable-videotoolbox --enable-shared --enable-pthreads --enable-version3 --enable-hardcoded-tables --cc=clang --host-cflags= --host-ldflags=
 
-* [ffmpeg](https://ffmpeg.org/ffmpeg.html) is a command line toolbox to
-  manipulate, convert and stream multimedia content.
-* [ffplay](https://ffmpeg.org/ffplay.html) is a minimalistic multimedia player.
-* [ffprobe](https://ffmpeg.org/ffprobe.html) is a simple analysis tool to inspect
-  multimedia content.
-* Additional small tools such as `aviocat`, `ismindex` and `qt-faststart`.
+make
+sudo make install
 
-## Documentation
+```
 
-The offline documentation is available in the **doc/** directory.
+## Run TQUIC Server
+reference: https://tquic.net/zh/docs/getting_started/demo
 
-The online documentation is available in the main [website](https://ffmpeg.org)
-and in the [wiki](https://trac.ffmpeg.org).
-
-### Examples
-
-Coding examples are available in the **doc/examples** directory.
-
-## License
-
-FFmpeg codebase is mainly LGPL-licensed with optional components licensed under
-GPL. Please refer to the LICENSE file for detailed information.
-
-## Contributing
-
-Patches should be submitted to the ffmpeg-devel mailing list using
-`git format-patch` or `git send-email`. Github pull requests should be
-avoided because they are not part of our review process and will be ignored.
+## Run ffplay with TQUIC
+```
+ffplay "tquic://ip:port/filename"
+```
