@@ -7,7 +7,7 @@ Add TQUIC lib to FFmpeg network component
 - FFmpeg version: 7.1.1 https://github.com/FFmpeg/FFmpeg/tree/n7.1.1
 - QUIC version: TQUIC 1.6.0 https://github.com/Tencent/tquic/tree/release/v1.6.0
 
-## Enviroments
+## Environments
 We have run this project on MacOS ARM system, but we do not guarantee working on other systems.
 
 ## Build
