@@ -71,7 +71,7 @@ static void process_connections(URLContext *h) {
     TQUICContext *s = h->priv_data;
     double timeout;
 
-    av_log(h, AV_LOG_DEBUG, "TQUIC 处理连接\n");
+    av_log(h, AV_LOG_DEBUG, "TQUIC connection process\n");
     pthread_mutex_lock(&s->read_write_mutex);
     quic_endpoint_process_connections(s->quic_endpoint);
     timeout = quic_endpoint_timeout(s->quic_endpoint) / 1e3f;
@@ -89,7 +89,7 @@ static void read_callback(EV_P_ ev_io *w, int revents) {
     TQUICContext *s = h->priv_data;
     static uint8_t buf[READ_BUF_SIZE];
 
-    av_log(h, AV_LOG_DEBUG, "TQUIC socket读回调\n");
+    av_log(h, AV_LOG_DEBUG, "TQUIC socket read callback start\n");
     pthread_mutex_lock(&s->read_write_mutex);
     while (true) {
         struct sockaddr_storage peer_addr;
@@ -128,7 +128,7 @@ static void read_callback(EV_P_ ev_io *w, int revents) {
     }
     pthread_mutex_unlock(&s->read_write_mutex);
     process_connections(h);
-    av_log(h, AV_LOG_DEBUG, "TQUIC socket读回调结束\n");
+    av_log(h, AV_LOG_DEBUG, "TQUIC socket read callback finish\n");
 }
 
 static void* event_loop_thread(void* arg){
@@ -148,7 +148,7 @@ static void* event_loop_thread(void* arg){
 static void tquic_on_conn_created(void *tctx, struct quic_conn_t *conn)
 {
     URLContext *ctx = tctx;
-    av_log(ctx, AV_LOG_INFO, "TQUIC连接已创建\n");
+    av_log(ctx, AV_LOG_INFO, "TQUIC connection created\n");
 }
 
 static void tquic_on_conn_established(void *tctx, struct quic_conn_t *conn)
@@ -157,7 +157,7 @@ static void tquic_on_conn_established(void *tctx, struct quic_conn_t *conn)
     TQUICContext *s = h->priv_data;
 
     int ret;
-    av_log(h, AV_LOG_INFO, "TQUIC连接已建立\n");
+    av_log(h, AV_LOG_INFO, "TQUIC connection established\n");
     
     s->quic_conn = conn;
 
@@ -167,7 +167,7 @@ static void tquic_on_conn_established(void *tctx, struct quic_conn_t *conn)
         av_log(h, AV_LOG_ERROR, "tquic: cannot create stream, ret = %d\n", ret);
         goto fail;
     }
-    av_log(h, AV_LOG_INFO, "conn_established: TQUIC流已创建\n");
+    av_log(h, AV_LOG_INFO, "conn_established: TQUIC stream has created\n");
 
     return;
     
@@ -202,7 +202,7 @@ fail:
 static void tquic_on_conn_closed(void *tctx, struct quic_conn_t *conn)
 {
     URLContext *ctx = tctx;
-    av_log(ctx, AV_LOG_INFO, "TQUIC连接已关闭\n");
+    av_log(ctx, AV_LOG_INFO, "TQUIC connection closed\n");
 }
 
 static void tquic_on_stream_created(void *tctx, struct quic_conn_t *conn, uint64_t stream_id) 
@@ -213,7 +213,7 @@ static void tquic_on_stream_created(void *tctx, struct quic_conn_t *conn, uint64
     char request_data[1024];
     int ret;
 
-    av_log(ctx, AV_LOG_INFO, "TQUIC流已创建, 流id: %llu\n", stream_id);
+    av_log(ctx, AV_LOG_INFO, "TQUIC stream created, stream id: %llu\n", stream_id);
 
     //start http0.9 request
     sprintf(request_data, "GET %s\r\n", s->path);
@@ -258,7 +258,7 @@ static void tquic_on_stream_readable(void *tctx, struct quic_conn_t *conn, uint6
 {
     URLContext *ctx = tctx;
     TQUICContext *s = ctx->priv_data;
-    av_log(ctx, AV_LOG_INFO, "TQUIC流可读, 流id: %llu\n", stream_id);
+    av_log(ctx, AV_LOG_INFO, "TQUIC stream readable, stream id: %llu\n", stream_id);
 
     if (s->quic_stream_id == stream_id){
         s->read_ready_flag = true;
@@ -268,13 +268,13 @@ static void tquic_on_stream_readable(void *tctx, struct quic_conn_t *conn, uint6
 static void tquic_on_stream_writable(void *tctx, struct quic_conn_t *conn, uint64_t stream_id) 
 {
     URLContext *ctx = tctx;
-    av_log(ctx, AV_LOG_INFO, "TQUIC流可写, 流id: %llu\n", stream_id);
+    av_log(ctx, AV_LOG_INFO, "TQUIC stream writable, stream id: %llu\n", stream_id);
 }
 
 static void tquic_on_stream_closed(void *tctx, struct quic_conn_t *conn, uint64_t stream_id) 
 {
     URLContext *ctx = tctx;
-    av_log(ctx, AV_LOG_INFO, "TQUIC流已关闭, 流id: %llu\n", stream_id);
+    av_log(ctx, AV_LOG_INFO, "TQUIC stream closed, stream id: %llu\n", stream_id);
 }
 
 static int tquic_on_packets_send(void *psctx, struct quic_packet_out_spec_t *pkts, unsigned int count) 
@@ -284,7 +284,7 @@ static int tquic_on_packets_send(void *psctx, struct quic_packet_out_spec_t *pkt
     unsigned int sent_count = 0;
     
     int i, j = 0;
-    av_log(ctx, AV_LOG_INFO, "TQUIC数据准备发送, 发送数量: %d\n", count);
+    av_log(ctx, AV_LOG_INFO, "TQUIC data ready to send, count: %d\n", count);
     for (i = 0; i < count; i++) {
         struct quic_packet_out_spec_t *pkt = pkts + i;
         for (j = 0; j < (*pkt).iovlen; j++) {
@@ -292,7 +292,7 @@ static int tquic_on_packets_send(void *psctx, struct quic_packet_out_spec_t *pkt
             ssize_t sent =
                 sendto(s->socket_fd, iov->iov_base, iov->iov_len, 0,
                        (struct sockaddr *)pkt->dst_addr, pkt->dst_addr_len);
-            av_log(ctx, AV_LOG_INFO, "TQUIC数据已发送, 发送大小: %zd\n", sent);
+            av_log(ctx, AV_LOG_INFO, "TQUIC data sent, size: %zd\n", sent);
 
             if (sent != iov->iov_len) {
                 if ((errno == EWOULDBLOCK) || (errno == EAGAIN)) {
@@ -326,7 +326,7 @@ const struct quic_packet_send_methods_t quic_packet_send_methods = {
 static void timeout_callback(EV_P_ ev_timer *w, int revents) {
     URLContext *h = w->data;
     TQUICContext *ctx = h->priv_data;
-    av_log(h, AV_LOG_INFO, "TQUIC超时回调\n");
+    av_log(h, AV_LOG_INFO, "TQUIC timeout callback\n");
 
     quic_endpoint_on_timeout(ctx->quic_endpoint);
     process_connections(h);
@@ -508,7 +508,7 @@ static int tquic_open(URLContext *h, const char *uri, int flags)
     while(!s->read_ready_flag){
         usleep(100000);
     }
-    av_log(h, AV_LOG_TRACE, "tquic_open 结束\n");
+    av_log(h, AV_LOG_TRACE, "tquic_open finish\n");
     return ret;
 
 fail:
