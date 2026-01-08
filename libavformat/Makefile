@@ -725,6 +725,9 @@ OBJS-$(CONFIG_LIBSRT_PROTOCOL)           += libsrt.o urldecode.o
 OBJS-$(CONFIG_LIBSSH_PROTOCOL)           += libssh.o
 OBJS-$(CONFIG_LIBZMQ_PROTOCOL)           += libzmq.o
 
+# TQUIC protocol
+OBJS-$(CONFIG_TQUIC_PROTOCOL)            += tquic.o
+
 # Objects duplicated from other libraries for shared builds
 SHLIBOBJS                                += log2_tab.o to_upper4.o
 SHLIBOBJS-$(CONFIG_ISO_MEDIA)            += mpegaudiotabs.o

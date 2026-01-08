@@ -6,6 +6,7 @@ Add TQUIC lib to FFmpeg network component
 ## Requirements
 - FFmpeg version: 7.1.1 https://github.com/FFmpeg/FFmpeg/tree/n7.1.1
 - QUIC version: TQUIC 1.6.0 https://github.com/Tencent/tquic/tree/release/v1.6.0
+- libev, SDL2(For ffplay) 
 
 ## Environments
 We have run this project on MacOS ARM system, but we do not guarantee working on other systems.
@@ -20,10 +21,11 @@ cd third_party/tquic
 cargo build --release -F ffi
 
 
-#build ffmpeg
-#openssl and pthreads must be included, you can set other modules as you want
-#configure example below:
-./configure --prefix=/usr/local/ffmpeg --extra-cflags=-I/path/to/ev.h --extra-ldflags="/path/to/libev.a ./third_party/tquic/target/release/libtquic.a" --enable-gpl --enable-openssl --enable-nonfree --enable-libfdk-aac --enable-libx264 --enable-libx265 --enable-filter=delogo --enable-debug --disable-optimizations --enable-libspeex --enable-videotoolbox --enable-shared --enable-pthreads --enable-version3 --enable-hardcoded-tables --cc=clang --host-cflags= --host-ldflags=
+# Build ffmpeg
+# Openssl and pthreads must be included, you can set other modules as you want
+# --disable-videotoolbox videotoolbox may raise unexpected error in MacOS
+# Configure example below:
+./configure --prefix=/usr/local/ffmpeg --extra-cflags=-I/path/to/ev.h --extra-ldflags="/path/to/libev.a ./third_party/tquic/target/release/libtquic.a" --enable-gpl --enable-openssl --enable-nonfree --enable-libfdk-aac --enable-libx264 --enable-libx265 --enable-filter=delogo --enable-debug --disable-optimizations --enable-libspeex --disable-videotoolbox --enable-shared --enable-pthreads --enable-version3 --enable-hardcoded-tables --cc=clang --host-cflags= --host-ldflags=
 
 make
 sudo make install
