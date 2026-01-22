@@ -12,6 +12,7 @@ Add TQUIC lib to FFmpeg network component
 We have run this project on MacOS ARM system, but we do not guarantee working on other systems.
 
 ## Build
+### For MacOS
 ```bash
 # Get source code
 git clone https://github.com/Thuwzq/FFmpeg_with_tquic.git --recursive
@@ -29,6 +30,17 @@ cargo build --release -F ffi
 
 make
 sudo make install
+
+```
+
+### For IOS
+```bash
+# Get source code
+git clone https://github.com/Thuwzq/FFmpeg_with_tquic.git --recursive
+
+# Build TQUIC
+cd build/ios
+./build_for_ios
 
 ```
 
