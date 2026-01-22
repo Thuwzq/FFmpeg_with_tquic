@@ -1,4 +1,4 @@
 [submodule "third_party/tquic"]
 	path = third_party/tquic
-	url = https://github.com/Tencent/tquic.git
+	url = https://github.com/Thuwzq/tquic.git
 	branch = release/v1.6.0
