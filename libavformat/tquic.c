@@ -464,10 +464,7 @@ static int get_network_addresses(TQUICContext *s)
     }
 
     freeifaddrs(ifaddr);
-    
-    // Set default flag: prefer wifi
-    s->use_wifi_flag = 1;
-    
+
     return 0;
 }
 
@@ -481,32 +478,45 @@ static int tquic_open(URLContext *h, const char *uri, int flags)
     char buf[256];
     int ret;
 
-    const char *const protos[1] = {"http/0.9"};
+    const char *const protos[1] = {"http/0.9"}; // Only support http/0.9
 
-    //get local address and port
-    // if(p) {
-    //     // Parse use_wifi parameter
-    //     if (av_find_info_tag(buf, sizeof(buf), "use_wifi", p)) {
-    //         int use_wifi = atoi(buf);
-    //         if (use_wifi == 0 || use_wifi == 1) {
-    //             s->use_wifi_flag = use_wifi;
-    //             av_log(h, AV_LOG_INFO, "URI parameter set use_wifi=%d\n", use_wifi);
-    //         } else {
-    //             av_log(h, AV_LOG_WARNING, "Invalid use_wifi value: %s, using default: %d\n", buf, s->use_wifi_flag);
-    //         }
-    //     }
-    // }
+    s->use_wifi_flag = 1; // default use wifi
+    p = strchr(uri, '?');
+    if(p) {
+        // Parse use_wifi parameter
+        if (av_find_info_tag(buf, sizeof(buf), "use_wifi", p)) {
+            int use_wifi = atoi(buf);
+            if (use_wifi == 0 || use_wifi == 1) {
+                s->use_wifi_flag = use_wifi;
+                av_log(h, AV_LOG_INFO, "URI parameter set use_wifi=%d\n", use_wifi);
+            } else {
+                av_log(h, AV_LOG_WARNING, "Invalid use_wifi value: %s, using default: %d\n", buf, s->use_wifi_flag);
+            }
+        }
+    }
     
     // Use the new address retrieval function to get wifi and cellular addresses
     if (get_network_addresses(s) == 0) {
-        // Select wifi or cellular address based on flag
+        // Check if we actually got valid addresses (not the default "0.0.0.0")
+        int has_valid_wifi = (strcmp(s->wifi_addr, "0.0.0.0") != 0);
+        int has_valid_cellular = (strcmp(s->cellular_addr, "0.0.0.0") != 0);
+        
+        // Select wifi or cellular address based on flag and availability
         if (s->use_wifi_flag) {
+            if (!has_valid_wifi) {
+                av_log(h, AV_LOG_WARNING, "No valid WiFi address found\n");
+            } else {
+                av_log(h, AV_LOG_INFO, "Using WiFi address: %s\n", s->wifi_addr);
+            }
             s->local_addr = av_strdup(s->wifi_addr);
-            av_log(h, AV_LOG_INFO, "Using WiFi address: %s\n", s->wifi_addr);
-        } else {
+        } else{
+            if (!has_valid_cellular) {
+                av_log(h, AV_LOG_WARNING, "No valid Cellular address found\n");
+            } else {
+                av_log(h, AV_LOG_INFO, "Using Cellular address: %s\n", s->cellular_addr);
+            }
             s->local_addr = av_strdup(s->cellular_addr);
-            av_log(h, AV_LOG_INFO, "Using Cellular address: %s\n", s->cellular_addr);
-        }
+        } 
     } else {
         // If retrieval fails, use default address
         s->local_addr = av_strdup("0.0.0.0");
@@ -517,13 +527,19 @@ static int tquic_open(URLContext *h, const char *uri, int flags)
     s->read_ready_flag = false;
     
     pthread_mutex_init(&s->read_write_mutex, NULL); // Initialize mutex
-    p = strchr(uri, '?');
 
     quic_set_logger(debug_log, h, "TRACE");
     
     av_log(h, AV_LOG_TRACE, "uri: %s\n", uri);
     // Analysis URI (tquic://host:port/path)
     av_url_split(NULL, 0, NULL, 0, hostname, sizeof(hostname), &des_port, s->path, sizeof(s->path), uri);
+
+    // Remove query parameters from path before sending to server
+    char *query_start = strchr(s->path, '?');
+    if (query_start) {
+        *query_start = '\0';  // Truncate at the '?' character
+        av_log(h, AV_LOG_DEBUG, "Removed query parameters from path, clean path: %s\n", s->path);
+    }
 
     s->remote_addr = av_strdup(hostname);
     s->remote_port = av_asprintf("%d", des_port);
