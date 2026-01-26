@@ -5,7 +5,7 @@
 #include "url.h"
 #include "libavutil/parseutils.h"
 #include "libavutil/mem.h"
-#include "third_party/tquic/include/tquic.h"  // TQUIC头文件
+#include "third_party/tquic/include/tquic.h"  // TQUIC header file
 #include "libavutil/error.h"
 
 #include <ev.h>
@@ -13,6 +13,26 @@
 #include <fcntl.h>
 #include <sys/socket.h>
 #include <pthread.h>
+#include <ifaddrs.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+#include <unistd.h>
+#include <errno.h>
+#include <string.h>
+
+// Simplified platform detection - only supports Unix-like systems
+#if defined(__APPLE__) && defined(__MACH__)
+    #include <TargetConditionals.h>
+    #if TARGET_OS_IPHONE
+        #define PLATFORM_IOS 1
+    #elif TARGET_OS_MAC
+        #define PLATFORM_MACOS 1
+    #endif
+#elif defined(__linux__)
+    #define PLATFORM_LINUX 1
+#else
+    #define PLATFORM_UNKNOWN 1
+#endif
 
 #define MAX_TQUIC_DATAGRAM_SIZE 1200
 #define READ_BUF_SIZE 4096
@@ -38,6 +58,9 @@ typedef struct TQUICContext {
     char *local_addr;
     char *local_port;
     struct addrinfo *local;
+    int use_wifi_flag;  // 1=use wifi address, 0=use cellular address
+    char wifi_addr[INET_ADDRSTRLEN];   // wifi interface IP address
+    char cellular_addr[INET_ADDRSTRLEN]; // cellular interface IP address
 
     //if finish download file
     bool fin_flag;
@@ -54,8 +77,8 @@ typedef struct TQUICContext {
 
 } TQUICContext;
 
-// 协议名称和选项
 static const AVOption tquic_options[] = {
+    { "use_wifi", "use wifi(1) or cellular(0)", offsetof(TQUICContext, use_wifi_flag), AV_OPT_TYPE_INT, { .i64 = 1 }, 0, 1, AV_OPT_FLAG_DECODING_PARAM },
     { NULL }
 };
 
@@ -258,7 +281,7 @@ static void tquic_on_stream_readable(void *tctx, struct quic_conn_t *conn, uint6
 {
     URLContext *ctx = tctx;
     TQUICContext *s = ctx->priv_data;
-    av_log(ctx, AV_LOG_INFO, "TQUIC stream readable, stream id: %llu\n", stream_id);
+    // av_log(ctx, AV_LOG_INFO, "TQUIC stream readable, stream id: %llu\n", stream_id);
 
     if (s->quic_stream_id == stream_id){
         s->read_ready_flag = true;
@@ -284,7 +307,7 @@ static int tquic_on_packets_send(void *psctx, struct quic_packet_out_spec_t *pkt
     unsigned int sent_count = 0;
     
     int i, j = 0;
-    av_log(ctx, AV_LOG_INFO, "TQUIC data ready to send, count: %d\n", count);
+    // av_log(ctx, AV_LOG_INFO, "TQUIC data ready to send, count: %d\n", count);
     for (i = 0; i < count; i++) {
         struct quic_packet_out_spec_t *pkt = pkts + i;
         for (j = 0; j < (*pkt).iovlen; j++) {
@@ -292,7 +315,7 @@ static int tquic_on_packets_send(void *psctx, struct quic_packet_out_spec_t *pkt
             ssize_t sent =
                 sendto(s->socket_fd, iov->iov_base, iov->iov_len, 0,
                        (struct sockaddr *)pkt->dst_addr, pkt->dst_addr_len);
-            av_log(ctx, AV_LOG_INFO, "TQUIC data sent, size: %zd\n", sent);
+            // av_log(ctx, AV_LOG_INFO, "TQUIC data sent, size: %zd\n", sent);
 
             if (sent != iov->iov_len) {
                 if ((errno == EWOULDBLOCK) || (errno == EAGAIN)) {
@@ -326,7 +349,7 @@ const struct quic_packet_send_methods_t quic_packet_send_methods = {
 static void timeout_callback(EV_P_ ev_timer *w, int revents) {
     URLContext *h = w->data;
     TQUICContext *ctx = h->priv_data;
-    av_log(h, AV_LOG_INFO, "TQUIC timeout callback\n");
+    // av_log(h, AV_LOG_INFO, "TQUIC timeout callback\n");
 
     quic_endpoint_on_timeout(ctx->quic_endpoint);
     process_connections(h);
@@ -378,71 +401,145 @@ static void debug_log(const uint8_t *data, size_t data_len, void *argp) {
     av_log(argp, AV_LOG_TRACE, "%s", data);
 }
 
-// 打开TQUIC连接
+// New: enhanced address retrieval function to get wifi and cellular addresses separately
+static int get_network_addresses(TQUICContext *s)
+{
+    struct ifaddrs *ifaddr, *ifa;
+    int family;
+    char host[NI_MAXHOST];
+    int found_wifi = 0;
+    int found_cellular = 0;
+
+    // Initialize addresses with default values
+    strncpy(s->wifi_addr, "0.0.0.0", INET_ADDRSTRLEN);
+    strncpy(s->cellular_addr, "0.0.0.0", INET_ADDRSTRLEN);
+
+    if (getifaddrs(&ifaddr) == -1) {
+        return -1;
+    }
+
+    // Iterate through all network interfaces
+    for (ifa = ifaddr; ifa != NULL; ifa = ifa->ifa_next) {
+        if (ifa->ifa_addr == NULL)
+            continue;
+
+        family = ifa->ifa_addr->sa_family;
+
+        // Only process IPv4 addresses
+        if (family == AF_INET) {
+            int ret_val = getnameinfo(ifa->ifa_addr, sizeof(struct sockaddr_in),
+                               host, NI_MAXHOST, NULL, 0, NI_NUMERICHOST);
+            if (ret_val != 0) {
+                continue;
+            }
+
+            // Ignore loopback, docker and veth interfaces
+            if (strcmp(ifa->ifa_name, "lo") != 0 && 
+                strncmp(ifa->ifa_name, "docker", 6) != 0 &&
+                strncmp(ifa->ifa_name, "veth", 4) != 0) {
+                
+                // Ignore loopback addresses and link-local addresses
+                if (strcmp(host, "127.0.0.1") != 0 && 
+                    strncmp(host, "169.254", 7) != 0) {
+                    
+                    // Identify wifi interfaces (usually start with en, like en0, en1, etc.)
+                    if (strncmp(ifa->ifa_name, "en", 2) == 0) {
+                        if (!found_wifi) {
+                            strncpy(s->wifi_addr, host, INET_ADDRSTRLEN - 1);
+                            s->wifi_addr[INET_ADDRSTRLEN - 1] = '\0';
+                            found_wifi = 1;
+                        }
+                    }
+                    // Identify cellular interfaces (on iOS usually pdp_ip0, pdp_ip1, etc.)
+                    else if (strncmp(ifa->ifa_name, "pdp_ip", 6) == 0) {
+                        if (!found_cellular) {
+                            strncpy(s->cellular_addr, host, INET_ADDRSTRLEN - 1);
+                            s->cellular_addr[INET_ADDRSTRLEN - 1] = '\0';
+                            found_cellular = 1;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    freeifaddrs(ifaddr);
+    
+    // Set default flag: prefer wifi
+    s->use_wifi_flag = 1;
+    
+    return 0;
+}
+
 static int tquic_open(URLContext *h, const char *uri, int flags)
 {
     TQUICContext *s = h->priv_data;
-    //remote address and port
-    char hostname[1024];
-    int des_port;
-
-    //connection index
+    char hostname[1024]; //remote host
+    int des_port; //remote port
     uint64_t connection_index;
-
     const char *p;
-    //char buf[256];
+    char buf[256];
     int ret;
 
     const char *const protos[1] = {"http/0.9"};
-    s->local_addr = (char *)"30.20.191.56";
-    s->local_port = (char *)"39001";
+
+    //get local address and port
+    // if(p) {
+    //     // Parse use_wifi parameter
+    //     if (av_find_info_tag(buf, sizeof(buf), "use_wifi", p)) {
+    //         int use_wifi = atoi(buf);
+    //         if (use_wifi == 0 || use_wifi == 1) {
+    //             s->use_wifi_flag = use_wifi;
+    //             av_log(h, AV_LOG_INFO, "URI parameter set use_wifi=%d\n", use_wifi);
+    //         } else {
+    //             av_log(h, AV_LOG_WARNING, "Invalid use_wifi value: %s, using default: %d\n", buf, s->use_wifi_flag);
+    //         }
+    //     }
+    // }
+    
+    // Use the new address retrieval function to get wifi and cellular addresses
+    if (get_network_addresses(s) == 0) {
+        // Select wifi or cellular address based on flag
+        if (s->use_wifi_flag) {
+            s->local_addr = av_strdup(s->wifi_addr);
+            av_log(h, AV_LOG_INFO, "Using WiFi address: %s\n", s->wifi_addr);
+        } else {
+            s->local_addr = av_strdup(s->cellular_addr);
+            av_log(h, AV_LOG_INFO, "Using Cellular address: %s\n", s->cellular_addr);
+        }
+    } else {
+        // If retrieval fails, use default address
+        s->local_addr = av_strdup("0.0.0.0");
+        av_log(h, AV_LOG_WARNING, "Failed to get network addresses, using default: 0.0.0.0\n");
+    }
+    
+    s->local_port = av_strdup("0");  // use port 0 to let OS assign a random port
     s->read_ready_flag = false;
-    // Initialize mutex
-    pthread_mutex_init(&s->read_write_mutex, NULL);
+    
+    pthread_mutex_init(&s->read_write_mutex, NULL); // Initialize mutex
     p = strchr(uri, '?');
 
     quic_set_logger(debug_log, h, "TRACE");
     
-
-    //get local address and port
-    if(p) {
-    //     if (av_find_info_tag(buf, sizeof(buf), "localaddr", p)) {
-    //         av_freep(&s->local_addr);
-    //         s->local_addr = av_strdup(buf);
-    //         if (!s->local_addr) {
-    //             ret = AVERROR(ENOMEM);
-    //             goto fail;
-    //         }
-    //     }
-    //     if (av_find_info_tag(buf, sizeof(buf), "localport", p)) {
-    //         av_freep(&s->local_port);
-    //         s->local_port = av_strdup(buf);
-    //         if (!s->local_port) {
-    //             ret = AVERROR(ENOMEM);
-    //             goto fail;
-    //         }
-    //     }
-    }
-    
     av_log(h, AV_LOG_TRACE, "uri: %s\n", uri);
-    // analysis URI (tquic://host:port/path)
+    // Analysis URI (tquic://host:port/path)
     av_url_split(NULL, 0, NULL, 0, hostname, sizeof(hostname), &des_port, s->path, sizeof(s->path), uri);
 
     s->remote_addr = av_strdup(hostname);
     s->remote_port = av_asprintf("%d", des_port);
     
-    //Create socket
+    // Create socket
     if (tquic_socket_create(h, &s->peer, &s->local) < 0) {
         ret = AVERROR(EINVAL);
         goto fail;
     }
 
-    //初始化TQUICContext
+    // Init TQUICContext
     s->quic_endpoint = NULL;
     s->quic_conn = NULL;
     s->tls_config = NULL;
 
-    // 初始化TQUIC config
+    // Init TQUIC config
     s->tquic_config = quic_config_new();
     if (s->tquic_config == NULL) {
         av_log(h, AV_LOG_ERROR, "tquic: cannot init TQUIC\n");
@@ -453,7 +550,7 @@ static int tquic_open(URLContext *h, const char *uri, int flags)
     quic_config_set_recv_udp_payload_size(s->tquic_config, MAX_TQUIC_DATAGRAM_SIZE);
     quic_config_set_initial_max_streams_bidi(s->tquic_config, 10);
 
-    // 初始化TQUIC tls config
+    // Init TQUIC tls config
     s->tls_config = quic_tls_config_new_client_config(protos, 1, true);
     if (s->tls_config == NULL) {
         av_log(h, AV_LOG_ERROR, "tquic: cannot init TQUIC TLS config\n");
@@ -462,7 +559,7 @@ static int tquic_open(URLContext *h, const char *uri, int flags)
     }
     quic_config_set_tls_config(s->tquic_config, s->tls_config);
 
-    // 初始化TQUIC endpoint
+    // Init TQUIC endpoint
     s->quic_endpoint = quic_endpoint_new(s->tquic_config, false, &quic_transport_methods, h, &quic_packet_send_methods, h);
     if (!s->quic_endpoint) {
         av_log(h, AV_LOG_ERROR, "tquic: cannot create endpoint\n");
@@ -475,7 +572,7 @@ static int tquic_open(URLContext *h, const char *uri, int flags)
     ev_init(&s->timer, timeout_callback);
     s->timer.data = h;
 
-    //Get TQUIC connection and TQUIC stream
+    // Get TQUIC connection and TQUIC stream
     ret = quic_endpoint_connect(s->quic_endpoint, 
                                 s->local->ai_addr, 
                                 s->local->ai_addrlen, 
@@ -512,6 +609,13 @@ static int tquic_open(URLContext *h, const char *uri, int flags)
     return ret;
 
 fail:
+    if (s->local_addr != NULL){
+        av_freep(&s->local_addr);
+    }
+    if (s->local_port != NULL){
+        av_freep(&s->local_port);
+    }
+    
     if (s->peer != NULL){
         freeaddrinfo(s->peer);
     }
@@ -539,7 +643,6 @@ fail:
     return ret;
 }
 
-// 读取数据
 static int tquic_read(URLContext *h, uint8_t *buf, int size)
 {
     TQUICContext *s = h->priv_data;
@@ -559,13 +662,29 @@ static int tquic_read(URLContext *h, uint8_t *buf, int size)
     return ret;
 }
 
-// 关闭连接
 static int tquic_close(URLContext *h)
 {
     TQUICContext *s = h->priv_data;
     av_log(h, AV_LOG_TRACE, "entering tquic_close\n");
 
+#if defined(PLATFORM_IOS)
+    av_log(h, AV_LOG_INFO, "iOS platform: TQUIC connection closed\n");
+#elif defined(PLATFORM_MACOS)
+    av_log(h, AV_LOG_INFO, "macOS platform: TQUIC connection closed\n");
+#elif defined(PLATFORM_LINUX)
+    av_log(h, AV_LOG_INFO, "Linux platform: TQUIC connection closed\n\n");
+#else
+    av_log(h, AV_LOG_INFO, "Unix-like platform: TQUIC connection closed\n\n");
+#endif
+
     pthread_mutex_destroy(&s->read_write_mutex);
+
+    if (s->local_addr != NULL){
+        av_freep(&s->local_addr);
+    }
+    if (s->local_port != NULL){
+        av_freep(&s->local_port);
+    }
 
     if (s->peer != NULL) {
         freeaddrinfo(s->peer);

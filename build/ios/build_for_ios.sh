@@ -26,7 +26,7 @@ CONFIGURE_FLAGS="--enable-cross-compile --disable-debug --disable-programs \
                  --disable-x86asm --disable-libmfx --disable-hwaccels \
                  --enable-videotoolbox --enable-audiotoolbox --disable-bzlib --disable-zlib \
                  --disable-avdevice --disable-avfilter --disable-swresample \
-                 --disable-decoder=vvc --disable-encoder=vvc --disable-demuxer=vvc --disable-muxer=vvc"
+                 --disable-decoder=vvc --disable-demuxer=vvc --disable-muxer=vvc"
 # if [ "$X264" ]
 # then
 #     CONFIGURE_FLAGS="$CONFIGURE_FLAGS --enable-gpl --enable-libx264"
