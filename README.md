@@ -51,3 +51,14 @@ reference: https://tquic.net/zh/docs/getting_started/demo
 ```
 ffplay "tquic://ip:port/filename"
 ```
+
+If you use this project on an iPhone, you can experience the multi-path feature of TQUIC.
+```
+# Use TQUIC multi-path mode
+ffplay "tquic://ip:port/filename?use_multipath=1"
+
+# You can also specify that the client uses Wi-Fi or cellular network to access server resources. (Note: The use_multipath feature conflicts with this feature. When use_multipath=1, the parameters related to this feature will be ignored.)
+ffplay "tquic://ip:port/filename?use_wifi=1" # Use wifi (Default)
+ffplay "tquic://ip:port/filename?use_wifi=0" # Use cellular
+
+```
